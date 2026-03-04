@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3CX Blacklist Management</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="container nav-content">
+            <a href="#" class="nav-brand">3CX Blacklist</a>
+            <div class="nav-links">
+                <a href="#features">Features</a>
+                <a href="#preview">Vorschau</a>
+                <a href="#installation">Installation</a>
+                <a href="https://github.com/Datenwunder089/3cx-blacklist-management" class="btn btn-small">GitHub</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero -->
+    <section class="hero">
+        <div class="container">
+            <h1>3CX Blacklist Management</h1>
+            <p class="hero-subtitle">Web-basierte Verwaltung der 3CX Rufnummern-Blacklist. Einfach. Sicher. Effizient.</p>
+            <div class="hero-actions">
+                <a href="#installation" class="btn btn-primary btn-large">Jetzt starten</a>
+                <a href="https://github.com/Datenwunder089/3cx-blacklist-management" class="btn btn-outline btn-large">Auf GitHub ansehen</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features -->
+    <section id="features" class="features">
+        <div class="container">
+            <h2>Features</h2>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">&#128222;</div>
+                    <h3>Blacklist-Verwaltung</h3>
+                    <p>Rufnummern hinzufuegen, bearbeiten und entfernen. Anrufe und SMS separat blockieren.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">&#128279;</div>
+                    <h3>3CX API-Integration</h3>
+                    <p>Direkte Anbindung an die 3CX xAPI mit OAuth 2.0 Authentifizierung.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">&#128269;</div>
+                    <h3>Echtzeit-Suche</h3>
+                    <p>Schnelles Filtern und Durchsuchen aller blockierten Nummern und Beschreibungen.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">&#128274;</div>
+                    <h3>Sicherheit</h3>
+                    <p>API-Zugangsdaten werden serverseitig gespeichert und nie an den Browser uebermittelt.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Preview -->
+    <section id="preview" class="preview">
+        <div class="container">
+            <h2>Vorschau</h2>
+            <div class="app-mockup">
+                <div class="mockup-sidebar">
+                    <div class="mockup-brand">3CX Blacklist</div>
+                    <div class="mockup-nav-item active">Blacklist</div>
+                    <div class="mockup-nav-item">Einstellungen</div>
+                </div>
+                <div class="mockup-main">
+                    <div class="mockup-header">
+                        <span class="mockup-title">Rufnummern-Blacklist</span>
+                        <span class="mockup-btn">+ Nummer hinzufuegen</span>
+                    </div>
+                    <div class="mockup-search">Suche nach Nummer oder Beschreibung...</div>
+                    <div class="mockup-table">
+                        <div class="mockup-row mockup-row-header">
+                            <span>Nummer</span>
+                            <span>Beschreibung</span>
+                            <span>Anrufe</span>
+                            <span>SMS</span>
+                        </div>
+                        <div class="mockup-row">
+                            <span class="mono">+49 30 12345678</span>
+                            <span>Spam-Anrufer</span>
+                            <span class="badge-block">Blockiert</span>
+                            <span class="badge-block">Blockiert</span>
+                        </div>
+                        <div class="mockup-row">
+                            <span class="mono">+49 89 98765432</span>
+                            <span>Telefonwerbung</span>
+                            <span class="badge-block">Blockiert</span>
+                            <span class="badge-allow">Erlaubt</span>
+                        </div>
+                        <div class="mockup-row">
+                            <span class="mono">+49 221 5551234</span>
+                            <span>Unbekannt</span>
+                            <span class="badge-block">Blockiert</span>
+                            <span class="badge-block">Blockiert</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Installation -->
+    <section id="installation" class="installation">
+        <div class="container">
+            <h2>Installation</h2>
+            <div class="steps">
+                <div class="step">
+                    <div class="step-number">1</div>
+                    <div class="step-content">
+                        <h3>Repository klonen</h3>
+                        <pre><code>git clone https://github.com/Datenwunder089/3cx-blacklist-management.git
+cd 3cx-blacklist-management</code></pre>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-number">2</div>
+                    <div class="step-content">
+                        <h3>Abhaengigkeiten installieren</h3>
+                        <pre><code>npm install</code></pre>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-number">3</div>
+                    <div class="step-content">
+                        <h3>Starten</h3>
+                        <pre><code>npm start</code></pre>
+                        <p>Die App ist dann unter <strong>http://localhost:3000</strong> erreichbar.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <p>3CX Blacklist Management &mdash; <a href="https://github.com/Datenwunder089/3cx-blacklist-management">GitHub</a></p>
+        </div>
+    </footer>
+
+</body>
+</html>
