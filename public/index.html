@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>3CX Blacklist Management</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <nav class="sidebar">
+    <div class="sidebar-header">
+      <h1>3CX Blacklist</h1>
+    </div>
+    <ul class="nav-links">
+      <li><a href="#" data-page="blacklist" class="active">Blacklist</a></li>
+      <li><a href="#" data-page="admin">Einstellungen</a></li>
+    </ul>
+  </nav>
+
+  <main class="content">
+    <!-- Blacklist Page -->
+    <section id="page-blacklist" class="page active">
+      <div class="page-header">
+        <h2>Rufnummern-Blacklist</h2>
+        <button id="btn-add" class="btn btn-primary">+ Nummer hinzuf&uuml;gen</button>
+      </div>
+
+      <div id="not-configured" class="alert alert-warning" style="display:none;">
+        Bitte zuerst unter <a href="#" data-page="admin">Einstellungen</a> die API-Zugangsdaten hinterlegen.
+      </div>
+
+      <div class="search-bar">
+        <input type="text" id="search-input" placeholder="Nummer oder Beschreibung suchen...">
+      </div>
+
+      <div id="blacklist-loading" class="loading" style="display:none;">
+        <div class="spinner"></div>
+        <span>Lade Blacklist...</span>
+      </div>
+
+      <div id="blacklist-error" class="alert alert-error" style="display:none;"></div>
+      <div id="blacklist-empty" class="alert alert-info" style="display:none;">Keine Eintr&auml;ge vorhanden.</div>
+
+      <table id="blacklist-table" class="data-table" style="display:none;">
+        <thead>
+          <tr>
+            <th>Nummer</th>
+            <th>Beschreibung</th>
+            <th>Anrufe</th>
+            <th>SMS</th>
+            <th>Aktionen</th>
+          </tr>
+        </thead>
+        <tbody id="blacklist-body"></tbody>
+      </table>
+    </section>
+
+    <!-- Admin Page -->
+    <section id="page-admin" class="page">
+      <div class="page-header">
+        <h2>API-Einstellungen</h2>
+      </div>
+
+      <form id="config-form" class="form-card">
+        <div class="form-group">
+          <label for="cfg-fqdn">3CX FQDN</label>
+          <input type="text" id="cfg-fqdn" placeholder="z.B. meine-firma.3cx.de" required>
+          <small>Hostname deiner 3CX-Instanz (mit oder ohne https://)</small>
+        </div>
+        <div class="form-group">
+          <label for="cfg-client-id">Client ID</label>
+          <input type="text" id="cfg-client-id" placeholder="API Client ID" required>
+        </div>
+        <div class="form-group">
+          <label for="cfg-client-secret">Client Secret</label>
+          <input type="password" id="cfg-client-secret" placeholder="API Client Secret" required>
+          <small>Wird sicher auf dem Server gespeichert und nie an den Browser gesendet.</small>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">Speichern</button>
+          <button type="button" id="btn-test" class="btn btn-secondary">Verbindung testen</button>
+        </div>
+        <div id="config-status" class="form-status" style="display:none;"></div>
+      </form>
+    </section>
+  </main>
+
+  <!-- Modal: Add/Edit Number -->
+  <div id="modal-overlay" class="modal-overlay" style="display:none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="modal-title">Nummer hinzuf&uuml;gen</h3>
+        <button class="modal-close" id="modal-close">&times;</button>
+      </div>
+      <form id="number-form">
+        <div class="form-group">
+          <label for="inp-number">Rufnummer</label>
+          <input type="tel" id="inp-number" placeholder="+4930123456" required>
+        </div>
+        <div class="form-group">
+          <label for="inp-description">Beschreibung</label>
+          <input type="text" id="inp-description" placeholder="z.B. Spam, Werbung...">
+        </div>
+        <div class="form-row">
+          <label class="checkbox-label">
+            <input type="checkbox" id="inp-block-calls" checked>
+            <span>Anrufe blockieren</span>
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" id="inp-block-sms">
+            <span>SMS blockieren</span>
+          </label>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">Speichern</button>
+          <button type="button" class="btn btn-secondary" id="modal-cancel">Abbrechen</button>
+        </div>
+        <div id="modal-error" class="alert alert-error" style="display:none;"></div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Confirm Delete Dialog -->
+  <div id="confirm-overlay" class="modal-overlay" style="display:none;">
+    <div class="modal modal-small">
+      <div class="modal-header">
+        <h3>Eintrag l&ouml;schen</h3>
+      </div>
+      <p id="confirm-text">Soll dieser Eintrag wirklich gel&ouml;scht werden?</p>
+      <div class="form-actions">
+        <button id="confirm-yes" class="btn btn-danger">L&ouml;schen</button>
+        <button id="confirm-no" class="btn btn-secondary">Abbrechen</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/app.js"></script>
+</body>
+</html>
