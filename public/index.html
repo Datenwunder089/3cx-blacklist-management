@@ -14,7 +14,15 @@
     <ul class="nav-links">
       <li><a href="#" data-page="blacklist" class="active">Blacklist</a></li>
       <li><a href="#" data-page="admin">Einstellungen</a></li>
+      <li id="nav-users" style="display:none;"><a href="#" data-page="users">Benutzer</a></li>
     </ul>
+    <div class="sidebar-footer">
+      <div class="user-info">
+        <span id="user-display-name"></span>
+        <span id="user-role-badge" class="role-badge"></span>
+      </div>
+      <button id="btn-logout" class="btn btn-logout">Abmelden</button>
+    </div>
   </nav>
 
   <main class="content">
@@ -62,6 +70,7 @@
       </div>
 
       <form id="config-form" class="form-card">
+        <h3 class="form-section-title">3CX API-Zugangsdaten</h3>
         <div class="form-group">
           <label for="cfg-fqdn">3CX FQDN</label>
           <input type="text" id="cfg-fqdn" placeholder="z.B. meine-firma.3cx.de" required>
@@ -82,6 +91,58 @@
         </div>
         <div id="config-status" class="form-status" style="display:none;"></div>
       </form>
+
+      <!-- Microsoft Login Config (admin only) -->
+      <form id="microsoft-config-form" class="form-card" style="display:none; margin-top: 24px;">
+        <h3 class="form-section-title">Microsoft Login (Azure AD)</h3>
+        <small class="form-section-desc">Ermöglicht Anmeldung über Microsoft-Konten. Erstellen Sie eine App-Registrierung im Azure Portal.</small>
+        <div class="form-group">
+          <label for="ms-tenant-id">Tenant ID</label>
+          <input type="text" id="ms-tenant-id" placeholder="Azure AD Tenant ID">
+        </div>
+        <div class="form-group">
+          <label for="ms-client-id">Client ID (Application ID)</label>
+          <input type="text" id="ms-client-id" placeholder="Azure AD Application ID">
+        </div>
+        <div class="form-group">
+          <label for="ms-client-secret">Client Secret</label>
+          <input type="password" id="ms-client-secret" placeholder="Azure AD Client Secret">
+          <small>Wird sicher auf dem Server gespeichert.</small>
+        </div>
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="ms-auto-provision">
+            <span>Automatische Benutzeranlage bei erstem Microsoft-Login</span>
+          </label>
+          <small>Wenn deaktiviert, muss der Benutzer zuerst manuell angelegt werden (mit gleicher E-Mail).</small>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">Microsoft-Login speichern</button>
+        </div>
+        <div id="ms-config-status" class="form-status" style="display:none;"></div>
+      </form>
+    </section>
+
+    <!-- User Management Page (admin only) -->
+    <section id="page-users" class="page">
+      <div class="page-header">
+        <h2>Benutzerverwaltung</h2>
+        <button id="btn-add-user" class="btn btn-primary">+ Benutzer anlegen</button>
+      </div>
+
+      <table id="users-table" class="data-table" style="display:none;">
+        <thead>
+          <tr>
+            <th>Benutzername</th>
+            <th>Anzeigename</th>
+            <th>E-Mail</th>
+            <th>Rolle</th>
+            <th>Microsoft</th>
+            <th>Aktionen</th>
+          </tr>
+        </thead>
+        <tbody id="users-body"></tbody>
+      </table>
     </section>
   </main>
 
@@ -131,6 +192,48 @@
         <button id="confirm-yes" class="btn btn-danger">L&ouml;schen</button>
         <button id="confirm-no" class="btn btn-secondary">Abbrechen</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Modal: Add/Edit User -->
+  <div id="user-modal-overlay" class="modal-overlay" style="display:none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="user-modal-title">Benutzer anlegen</h3>
+        <button class="modal-close" id="user-modal-close">&times;</button>
+      </div>
+      <form id="user-form">
+        <input type="hidden" id="user-edit-id">
+        <div class="form-group">
+          <label for="user-inp-username">Benutzername</label>
+          <input type="text" id="user-inp-username" required>
+        </div>
+        <div class="form-group">
+          <label for="user-inp-displayname">Anzeigename</label>
+          <input type="text" id="user-inp-displayname">
+        </div>
+        <div class="form-group">
+          <label for="user-inp-email">E-Mail</label>
+          <input type="email" id="user-inp-email" placeholder="Für Microsoft-Login-Zuordnung">
+        </div>
+        <div class="form-group">
+          <label for="user-inp-role">Rolle</label>
+          <select id="user-inp-role">
+            <option value="user">Benutzer</option>
+            <option value="admin">Administrator</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="user-inp-password">Passwort</label>
+          <input type="password" id="user-inp-password" minlength="8">
+          <small id="user-password-hint">Mindestens 8 Zeichen. Leer lassen wenn nur Microsoft-Login genutzt wird.</small>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">Speichern</button>
+          <button type="button" class="btn btn-secondary" id="user-modal-cancel">Abbrechen</button>
+        </div>
+        <div id="user-modal-error" class="alert alert-error" style="display:none;"></div>
+      </form>
     </div>
   </div>
 

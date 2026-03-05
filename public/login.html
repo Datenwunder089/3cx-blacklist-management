@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login – 3CX Blacklist Management</title>
+  <link rel="stylesheet" href="/css/login.css">
+</head>
+<body>
+  <div class="login-container">
+    <div class="login-card">
+      <div class="login-header">
+        <h1>3CX Blacklist</h1>
+        <p class="login-subtitle">Bitte melden Sie sich an</p>
+      </div>
+
+      <!-- Setup Form (shown only when no users exist) -->
+      <form id="setup-form" class="login-form" style="display:none;">
+        <div class="setup-notice">
+          <strong>Ersteinrichtung</strong><br>
+          Legen Sie den ersten Administrator-Account an.
+        </div>
+        <div class="form-group">
+          <label for="setup-username">Benutzername</label>
+          <input type="text" id="setup-username" autocomplete="username" required>
+        </div>
+        <div class="form-group">
+          <label for="setup-displayname">Anzeigename</label>
+          <input type="text" id="setup-displayname" placeholder="(optional)">
+        </div>
+        <div class="form-group">
+          <label for="setup-password">Passwort</label>
+          <input type="password" id="setup-password" minlength="8" autocomplete="new-password" required>
+          <small>Mindestens 8 Zeichen</small>
+        </div>
+        <div class="form-group">
+          <label for="setup-password2">Passwort wiederholen</label>
+          <input type="password" id="setup-password2" minlength="8" autocomplete="new-password" required>
+        </div>
+        <button type="submit" class="btn btn-primary btn-full">Administrator anlegen</button>
+        <div id="setup-error" class="login-error" style="display:none;"></div>
+      </form>
+
+      <!-- Login Form -->
+      <form id="login-form" class="login-form" style="display:none;">
+        <div class="form-group">
+          <label for="login-username">Benutzername</label>
+          <input type="text" id="login-username" autocomplete="username" required>
+        </div>
+        <div class="form-group">
+          <label for="login-password">Passwort</label>
+          <input type="password" id="login-password" autocomplete="current-password" required>
+        </div>
+        <button type="submit" class="btn btn-primary btn-full">Anmelden</button>
+        <div id="login-error" class="login-error" style="display:none;"></div>
+      </form>
+
+      <!-- Microsoft Login Button -->
+      <div id="microsoft-login" style="display:none;">
+        <div class="divider"><span>oder</span></div>
+        <a href="/api/auth/microsoft/login" class="btn btn-microsoft btn-full">
+          <svg viewBox="0 0 21 21" width="20" height="20">
+            <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
+            <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
+            <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
+            <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
+          </svg>
+          Mit Microsoft anmelden
+        </a>
+      </div>
+
+      <!-- URL Error (from OAuth redirect) -->
+      <div id="url-error" class="login-error" style="display:none;"></div>
+    </div>
+  </div>
+
+  <script>
+    (async () => {
+      const loginForm = document.getElementById('login-form');
+      const setupForm = document.getElementById('setup-form');
+      const msLogin = document.getElementById('microsoft-login');
+      const urlError = document.getElementById('url-error');
+
+      // Show error from URL (OAuth callback errors)
+      const params = new URLSearchParams(location.search);
+      if (params.get('error')) {
+        urlError.textContent = params.get('error');
+        urlError.style.display = 'block';
+      }
+
+      // Check if already logged in
+      try {
+        const status = await fetch('/api/auth/status').then(r => r.json());
+        if (status.authenticated) {
+          location.href = '/';
+          return;
+        }
+      } catch {}
+
+      // Check if setup needed
+      const { needsSetup } = await fetch('/api/auth/needs-setup').then(r => r.json());
+
+      if (needsSetup) {
+        setupForm.style.display = 'block';
+      } else {
+        loginForm.style.display = 'block';
+
+        // Check Microsoft login availability
+        try {
+          const msConfig = await fetch('/api/auth/microsoft-config').then(r => r.json());
+          if (msConfig.enabled) {
+            msLogin.style.display = 'block';
+          }
+        } catch {}
+      }
+
+      // Setup form handler
+      setupForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const errEl = document.getElementById('setup-error');
+        errEl.style.display = 'none';
+
+        const password = document.getElementById('setup-password').value;
+        const password2 = document.getElementById('setup-password2').value;
+
+        if (password !== password2) {
+          errEl.textContent = 'Passwörter stimmen nicht überein.';
+          errEl.style.display = 'block';
+          return;
+        }
+
+        try {
+          const res = await fetch('/api/auth/setup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              username: document.getElementById('setup-username').value.trim(),
+              displayName: document.getElementById('setup-displayname').value.trim(),
+              password: password,
+            }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error);
+          location.href = '/';
+        } catch (err) {
+          errEl.textContent = err.message;
+          errEl.style.display = 'block';
+        }
+      });
+
+      // Login form handler
+      loginForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const errEl = document.getElementById('login-error');
+        errEl.style.display = 'none';
+
+        const btn = loginForm.querySelector('button[type="submit"]');
+        btn.disabled = true;
+        btn.textContent = 'Anmelden...';
+
+        try {
+          const res = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              username: document.getElementById('login-username').value.trim(),
+              password: document.getElementById('login-password').value,
+            }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error);
+          location.href = '/';
+        } catch (err) {
+          errEl.textContent = err.message;
+          errEl.style.display = 'block';
+          btn.disabled = false;
+          btn.textContent = 'Anmelden';
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

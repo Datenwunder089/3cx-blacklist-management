@@ -78,6 +78,59 @@ body {
   border-left-color: var(--sidebar-active);
 }
 
+/* --- Sidebar Footer --- */
+
+.sidebar-footer {
+  margin-top: auto;
+  padding: 16px 20px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 13px;
+  color: #fff;
+}
+
+.role-badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.role-admin {
+  background: rgba(59,130,246,0.2);
+  color: #93c5fd;
+}
+
+.role-user {
+  background: rgba(255,255,255,0.1);
+  color: #94a3b8;
+}
+
+.btn-logout {
+  width: 100%;
+  padding: 7px 12px;
+  font-size: 13px;
+  background: rgba(255,255,255,0.08);
+  color: var(--sidebar-text);
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn-logout:hover {
+  background: rgba(255,255,255,0.15);
+  color: #fff;
+}
+
 /* --- Content --- */
 
 .content {
@@ -260,6 +313,16 @@ body {
   color: #64748b;
 }
 
+.badge-blue {
+  background: #dbeafe;
+  color: #2563eb;
+}
+
+.badge-green {
+  background: #dcfce7;
+  color: #16a34a;
+}
+
 /* --- Loading --- */
 
 .loading {
@@ -298,6 +361,19 @@ body {
   margin-bottom: 20px;
 }
 
+.form-section-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.form-section-desc {
+  display: block;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 20px;
+}
+
 .form-group label {
   display: block;
   font-size: 13px;
@@ -306,8 +382,25 @@ body {
   color: var(--text);
 }
 
+.form-group select {
+  width: 100%;
+  padding: 9px 12px;
+  font-size: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  outline: none;
+  background: #fff;
+  transition: border-color 0.15s;
+}
+
+.form-group select:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(59,130,246,0.1);
+}
+
 .form-group input[type="text"],
 .form-group input[type="tel"],
+.form-group input[type="email"],
 .form-group input[type="password"] {
   width: 100%;
   padding: 9px 12px;
