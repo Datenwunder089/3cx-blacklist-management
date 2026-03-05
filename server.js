@@ -5,7 +5,7 @@ const https = require('https');
 const http = require('http');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 5000;
 const CONFIG_PATH = path.join(__dirname, 'data', 'config.json');
 
 app.use(express.json());
