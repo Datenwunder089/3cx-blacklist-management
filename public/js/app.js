@@ -135,17 +135,28 @@ function renderBlacklist(filter = '') {
   empty.style.display = 'none';
   table.style.display = 'table';
 
-  body.innerHTML = filtered.map(entry => `
-    <tr>
-      <td class="mono">${escapeHtml(entry.Number || '')}</td>
-      <td>${escapeHtml(entry.Description || '—')}</td>
-      <td>${entry.blockCalls ? '<span class="badge badge-red">Blockiert</span>' : '<span class="badge badge-gray">Erlaubt</span>'}</td>
-      <td>${entry.blockSms ? '<span class="badge badge-red">Blockiert</span>' : '<span class="badge badge-gray">Erlaubt</span>'}</td>
-      <td>
-        <button class="btn btn-small btn-danger" onclick="confirmDelete('${escapeAttr(entry.Id || entry.id)}', '${escapeAttr(entry.Number)}')">L&ouml;schen</button>
-      </td>
-    </tr>
-  `).join('');
+  // DOM-basiert bauen (kein innerHTML/inline-onclick) -> keine XSS-Sinks in Attributen.
+  body.innerHTML = '';
+  filtered.forEach(entry => {
+    const tr = document.createElement('tr');
+
+    const tdNumber = document.createElement('td');
+    tdNumber.className = 'mono';
+    tdNumber.textContent = entry.Number || '';
+
+    const tdDesc = document.createElement('td');
+    tdDesc.textContent = entry.Description || '—';
+
+    const tdActions = document.createElement('td');
+    const delBtn = document.createElement('button');
+    delBtn.className = 'btn btn-small btn-danger';
+    delBtn.textContent = 'Löschen';
+    delBtn.addEventListener('click', () => confirmDelete(entry.Id || entry.id, entry.Number || ''));
+    tdActions.appendChild(delBtn);
+
+    tr.append(tdNumber, tdDesc, tdActions);
+    body.appendChild(tr);
+  });
 }
 
 document.getElementById('search-input').addEventListener('input', (e) => {
@@ -160,7 +171,6 @@ const modalError = document.getElementById('modal-error');
 
 document.getElementById('btn-add').addEventListener('click', () => {
   modalForm.reset();
-  document.getElementById('inp-block-calls').checked = true;
   modalError.style.display = 'none';
   modal.style.display = 'flex';
 });
@@ -176,8 +186,6 @@ modalForm.addEventListener('submit', async (e) => {
   const payload = {
     Number: document.getElementById('inp-number').value.trim(),
     Description: document.getElementById('inp-description').value.trim(),
-    blockCalls: document.getElementById('inp-block-calls').checked,
-    blockSms: document.getElementById('inp-block-sms').checked,
   };
 
   try {
@@ -196,19 +204,19 @@ const confirmOverlay = document.getElementById('confirm-overlay');
 let pendingDeleteId = null;
 let pendingDeleteType = null; // 'blacklist' or 'user'
 
-window.confirmDelete = function(id, number) {
+function confirmDelete(id, number) {
   pendingDeleteId = id;
   pendingDeleteType = 'blacklist';
   document.getElementById('confirm-text').textContent = `Soll "${number}" wirklich aus der Blacklist entfernt werden?`;
   confirmOverlay.style.display = 'flex';
-};
+}
 
-window.confirmDeleteUser = function(id, username) {
+function confirmDeleteUser(id, username) {
   pendingDeleteId = id;
   pendingDeleteType = 'user';
   document.getElementById('confirm-text').textContent = `Soll der Benutzer "${username}" wirklich gelöscht werden?`;
   confirmOverlay.style.display = 'flex';
-};
+}
 
 document.getElementById('confirm-yes').addEventListener('click', async () => {
   if (!pendingDeleteId) return;
@@ -349,19 +357,47 @@ async function loadUsers() {
     const table = document.getElementById('users-table');
     const body = document.getElementById('users-body');
 
-    body.innerHTML = users.map(u => `
-      <tr>
-        <td class="mono">${escapeHtml(u.username)}</td>
-        <td>${escapeHtml(u.displayName || '—')}</td>
-        <td>${escapeHtml(u.email || '—')}</td>
-        <td><span class="badge ${u.role === 'admin' ? 'badge-blue' : 'badge-gray'}">${u.role === 'admin' ? 'Admin' : 'Benutzer'}</span></td>
-        <td>${u.microsoftId ? '<span class="badge badge-green">Verknüpft</span>' : '<span class="badge badge-gray">—</span>'}</td>
-        <td>
-          <button class="btn btn-small btn-secondary" onclick="editUser('${escapeAttr(u.id)}')">Bearbeiten</button>
-          <button class="btn btn-small btn-danger" onclick="confirmDeleteUser('${escapeAttr(u.id)}', '${escapeAttr(u.username)}')">Löschen</button>
-        </td>
-      </tr>
-    `).join('');
+    // DOM-basiert bauen (kein innerHTML/inline-onclick) -> keine XSS-Sinks.
+    body.innerHTML = '';
+    users.forEach(u => {
+      const tr = document.createElement('tr');
+
+      const tdUser = document.createElement('td');
+      tdUser.className = 'mono';
+      tdUser.textContent = u.username;
+
+      const tdName = document.createElement('td');
+      tdName.textContent = u.displayName || '—';
+
+      const tdEmail = document.createElement('td');
+      tdEmail.textContent = u.email || '—';
+
+      const tdRole = document.createElement('td');
+      const roleBadge = document.createElement('span');
+      roleBadge.className = 'badge ' + (u.role === 'admin' ? 'badge-blue' : 'badge-gray');
+      roleBadge.textContent = u.role === 'admin' ? 'Admin' : 'Benutzer';
+      tdRole.appendChild(roleBadge);
+
+      const tdMs = document.createElement('td');
+      const msBadge = document.createElement('span');
+      msBadge.className = 'badge ' + (u.microsoftId ? 'badge-green' : 'badge-gray');
+      msBadge.textContent = u.microsoftId ? 'Verknüpft' : '—';
+      tdMs.appendChild(msBadge);
+
+      const tdActions = document.createElement('td');
+      const editBtn = document.createElement('button');
+      editBtn.className = 'btn btn-small btn-secondary';
+      editBtn.textContent = 'Bearbeiten';
+      editBtn.addEventListener('click', () => editUser(u.id));
+      const delBtn = document.createElement('button');
+      delBtn.className = 'btn btn-small btn-danger';
+      delBtn.textContent = 'Löschen';
+      delBtn.addEventListener('click', () => confirmDeleteUser(u.id, u.username));
+      tdActions.append(editBtn, delBtn);
+
+      tr.append(tdUser, tdName, tdEmail, tdRole, tdMs, tdActions);
+      body.appendChild(tr);
+    });
 
     table.style.display = 'table';
     window._usersCache = users;
@@ -385,7 +421,7 @@ document.getElementById('btn-add-user').addEventListener('click', () => {
   userModal.style.display = 'flex';
 });
 
-window.editUser = function(id) {
+function editUser(id) {
   const user = (window._usersCache || []).find(u => u.id === id);
   if (!user) return;
 
@@ -400,7 +436,7 @@ window.editUser = function(id) {
   document.getElementById('user-password-hint').textContent = 'Leer lassen um das Passwort nicht zu ändern.';
   userModalError.style.display = 'none';
   userModal.style.display = 'flex';
-};
+}
 
 document.getElementById('user-modal-close').addEventListener('click', () => { userModal.style.display = 'none'; });
 document.getElementById('user-modal-cancel').addEventListener('click', () => { userModal.style.display = 'none'; });
@@ -442,18 +478,6 @@ userForm.addEventListener('submit', async (e) => {
     userModalError.style.display = 'block';
   }
 });
-
-// --- Helpers ---
-
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
-}
-
-function escapeAttr(str) {
-  return String(str || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
-}
 
 // --- Init ---
 

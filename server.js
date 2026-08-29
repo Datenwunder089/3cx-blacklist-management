@@ -1,3 +1,4 @@
+require('express-async-errors'); // faengt Rejections aus async-Handlern und leitet sie an den globalen Error-Handler
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
@@ -8,6 +9,7 @@ const session = require('express-session');
 const bcrypt = require('bcryptjs');
 const rateLimit = require('express-rate-limit');
 const { v4: uuidv4 } = require('uuid');
+const { createRemoteJWKSet, jwtVerify } = require('jose');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -19,17 +21,46 @@ const AUTH_CONFIG_PATH = path.join(DATA_DIR, 'auth-config.json');
 // Ensure data directory exists
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
+// --- Input-Validierung ---
+
+// Verlangt einen nicht-leeren String (nach trim). Wehrt Nicht-String-Eingaben
+// (z.B. {"username":123}) an den Aussengrenzen ab, bevor String-Methoden crashen.
+function isNonEmptyString(v) {
+  return typeof v === 'string' && v.trim().length > 0;
+}
+
+// --- Atomares Schreiben (Temp-Datei + rename) ---
+
+function writeFileAtomic(filePath, data, options) {
+  const tmp = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(tmp, data, options);
+  fs.renameSync(tmp, filePath);
+}
+
 // --- Session Secret (persistent) ---
 
 const SESSION_SECRET_PATH = path.join(DATA_DIR, '.session-secret');
 function getSessionSecret() {
   try {
     return fs.readFileSync(SESSION_SECRET_PATH, 'utf8');
-  } catch {
+  } catch (err) {
+    // Nur ein fehlendes Secret neu erzeugen. Andere Fehler (z.B. EACCES)
+    // duerfen NICHT still zu einem neuen Secret fuehren (invalidiert alle Sessions).
+    if (err.code !== 'ENOENT') {
+      console.error('Fehler beim Lesen des Session-Secrets:', err);
+      throw err;
+    }
     const secret = crypto.randomBytes(48).toString('hex');
     fs.writeFileSync(SESSION_SECRET_PATH, secret, { mode: 0o600 });
     return secret;
   }
+}
+
+// Regeneriert die Session-ID (gegen Session-Fixation) - Promise-Wrapper.
+function regenerateSession(req) {
+  return new Promise((resolve, reject) => {
+    req.session.regenerate((err) => (err ? reject(err) : resolve()));
+  });
 }
 
 // --- Middleware ---
@@ -49,14 +80,15 @@ app.use(session({
 }));
 
 // Rate limiter for login attempts: 5 per 15 minutes per IP
+// Kein Custom-keyGenerator: der Default (ipKeyGenerator) normalisiert IPv6 korrekt;
+// validate bleibt aktiv, damit Fehlkonfiguration frueh auffaellt statt stumm zu bleiben.
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
+  windowMs: LOGIN_WINDOW_MS,
   max: 5,
   message: { error: 'Zu viele Login-Versuche. Bitte in 15 Minuten erneut versuchen.' },
   standardHeaders: true,
   legacyHeaders: false,
-  validate: false,
-  keyGenerator: (req) => req.ip,
 });
 
 // --- User storage helpers ---
@@ -64,13 +96,18 @@ const loginLimiter = rateLimit({
 function readUsers() {
   try {
     return JSON.parse(fs.readFileSync(USERS_PATH, 'utf8'));
-  } catch {
-    return [];
+  } catch (err) {
+    // Nur eine wirklich fehlende Datei bedeutet "keine Benutzer". Bei Lese-/Parse-
+    // Fehlern NICHT still auf [] zurueckfallen (sonst wuerde needs-setup wieder true
+    // und ein Fremder koennte eine neue Ersteinrichtung starten).
+    if (err.code === 'ENOENT') return [];
+    console.error('Fehler beim Lesen von users.json:', err);
+    throw err;
   }
 }
 
 function writeUsers(users) {
-  fs.writeFileSync(USERS_PATH, JSON.stringify(users, null, 2), { mode: 0o600 });
+  writeFileAtomic(USERS_PATH, JSON.stringify(users, null, 2), { mode: 0o600 });
 }
 
 function findUserByUsername(username) {
@@ -99,6 +136,7 @@ function recordFailedAttempt(username) {
   const key = username.toLowerCase();
   const record = failedAttempts.get(key) || { count: 0 };
   record.count++;
+  record.updatedAt = Date.now();
   // Lock after 5 failed attempts: 5 min for first lock, doubles each time (max 60 min)
   if (record.count >= 5) {
     const lockMinutes = Math.min(60, 5 * Math.pow(2, Math.floor((record.count - 5) / 3)));
@@ -111,6 +149,20 @@ function clearFailedAttempts(username) {
   failedAttempts.delete(username.toLowerCase());
 }
 
+// Periodische Bereinigung: verhindert unbegrenztes Map-Wachstum. Entfernt Eintraege,
+// deren Sperre abgelaufen ist bzw. die laenger als ein Zeitfenster nicht mehr auffielen.
+const FAILED_ATTEMPT_TTL_MS = 15 * 60 * 1000;
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, record] of failedAttempts) {
+    if (record.lockedUntil) {
+      if (now >= record.lockedUntil) failedAttempts.delete(key);
+    } else if (now - (record.updatedAt || 0) > FAILED_ATTEMPT_TTL_MS) {
+      failedAttempts.delete(key);
+    }
+  }
+}, 5 * 60 * 1000).unref();
+
 // --- Auth config helpers ---
 
 function readAuthConfig() {
@@ -122,7 +174,38 @@ function readAuthConfig() {
 }
 
 function writeAuthConfig(config) {
-  fs.writeFileSync(AUTH_CONFIG_PATH, JSON.stringify(config, null, 2), { mode: 0o600 });
+  writeFileAtomic(AUTH_CONFIG_PATH, JSON.stringify(config, null, 2), { mode: 0o600 });
+}
+
+// --- Microsoft ID-Token-Verifikation (Signatur via JWKS + iss/aud/exp) ---
+
+const jwksCache = new Map(); // tenantId -> RemoteJWKSet
+function getMicrosoftJWKS(tenantId) {
+  let jwks = jwksCache.get(tenantId);
+  if (!jwks) {
+    jwks = createRemoteJWKSet(
+      new URL(`https://login.microsoftonline.com/${encodeURIComponent(tenantId)}/discovery/v2.0/keys`)
+    );
+    jwksCache.set(tenantId, jwks);
+  }
+  return jwks;
+}
+
+// Verifiziert Signatur, audience (clientId) und Ablauf (exp) des ID-Tokens und
+// prueft, dass der Issuer wirklich von login.microsoftonline.com stammt.
+async function verifyMicrosoftIdToken(idToken, ms) {
+  if (!isNonEmptyString(idToken)) {
+    throw new Error('Kein ID-Token erhalten.');
+  }
+  const { payload } = await jwtVerify(idToken, getMicrosoftJWKS(ms.tenantId), {
+    audience: ms.clientId,
+  });
+  // Issuer haerten: muss ein v2.0-Issuer von login.microsoftonline.com sein.
+  const iss = typeof payload.iss === 'string' ? payload.iss : '';
+  if (!/^https:\/\/login\.microsoftonline\.com\/[^/]+\/v2\.0$/.test(iss)) {
+    throw new Error('Ungültiger Token-Aussteller (iss).');
+  }
+  return payload;
 }
 
 // --- Auth middleware ---
@@ -195,18 +278,19 @@ app.post('/api/auth/setup', async (req, res) => {
   }
 
   const { username, password, displayName } = req.body;
-  if (!username || !password) {
+  if (!isNonEmptyString(username) || !isNonEmptyString(password)) {
     return res.status(400).json({ error: 'Benutzername und Passwort erforderlich.' });
   }
   if (password.length < 8) {
     return res.status(400).json({ error: 'Passwort muss mindestens 8 Zeichen lang sein.' });
   }
+  const displayNameValue = isNonEmptyString(displayName) ? displayName : username;
 
   const hashedPassword = await bcrypt.hash(password, 12);
   const user = {
     id: uuidv4(),
     username: username.trim(),
-    displayName: (displayName || username).trim(),
+    displayName: displayNameValue.trim(),
     passwordHash: hashedPassword,
     role: 'admin',
     createdAt: new Date().toISOString(),
@@ -214,7 +298,8 @@ app.post('/api/auth/setup', async (req, res) => {
 
   writeUsers([user]);
 
-  // Log in immediately
+  // Log in immediately (Session-ID regenerieren gegen Session-Fixation)
+  await regenerateSession(req);
   req.session.user = { id: user.id, username: user.username, displayName: user.displayName, role: user.role };
   res.json({ success: true });
 });
@@ -223,7 +308,7 @@ app.post('/api/auth/setup', async (req, res) => {
 
 app.post('/api/auth/login', loginLimiter, async (req, res) => {
   const { username, password } = req.body;
-  if (!username || !password) {
+  if (!isNonEmptyString(username) || !isNonEmptyString(password)) {
     return res.status(400).json({ error: 'Benutzername und Passwort erforderlich.' });
   }
 
@@ -237,19 +322,22 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
 
   const user = findUserByUsername(username);
   if (!user) {
-    recordFailedAttempt(username);
-    // Constant-time delay to prevent user enumeration
+    // Fehlversuche NICHT fuer nicht existierende Konten zaehlen: sonst koennte ein
+    // Angreifer beliebige Konten aussperren (DoS) und die failedAttempts-Map beliebig
+    // aufblaehen. Constant-time delay bleibt gegen User-Enumeration.
     await bcrypt.hash('dummy', 12);
     return res.status(401).json({ error: 'Benutzername oder Passwort falsch.' });
   }
 
-  const valid = await bcrypt.compare(password, user.passwordHash);
+  const valid = user.passwordHash ? await bcrypt.compare(password, user.passwordHash) : false;
   if (!valid) {
     recordFailedAttempt(username);
     return res.status(401).json({ error: 'Benutzername oder Passwort falsch.' });
   }
 
   clearFailedAttempts(username);
+  // Session-ID regenerieren gegen Session-Fixation
+  await regenerateSession(req);
   req.session.user = { id: user.id, username: user.username, displayName: user.displayName, role: user.role };
   res.json({
     success: true,
@@ -328,9 +416,8 @@ app.get('/api/auth/microsoft/callback', async (req, res) => {
 
     const tokenData = JSON.parse(tokenRes.body);
 
-    // Decode ID token to get user info (JWT payload)
-    const idTokenParts = tokenData.id_token.split('.');
-    const payload = JSON.parse(Buffer.from(idTokenParts[1], 'base64url').toString());
+    // ID-Token verifizieren (Signatur/JWKS, aud, exp, iss) statt nur base64-dekodieren
+    const payload = await verifyMicrosoftIdToken(tokenData.id_token, ms);
 
     const email = payload.email || payload.preferred_username || '';
     const displayName = payload.name || email;
@@ -340,9 +427,18 @@ app.get('/api/auth/microsoft/callback', async (req, res) => {
     let users = readUsers();
     let user = users.find(u => u.microsoftId === microsoftId);
 
-    if (!user) {
-      // Also try matching by email
-      user = users.find(u => u.email && u.email.toLowerCase() === email.toLowerCase());
+    if (!user && email) {
+      // Fallback: Zuordnung per E-Mail - aber KEINE ungepruefte Uebernahme fremder
+      // Rollen. Ein bereits verknuepftes Admin-Konto (mit anderer microsoftId) sowie
+      // ein noch unverknuepftes Admin-Konto duerfen NICHT allein per E-Mail-Treffer
+      // uebernommen werden; solche Verknuepfungen muss ein Admin bewusst herstellen.
+      const byEmail = users.find(u => u.email && u.email.toLowerCase() === email.toLowerCase());
+      if (byEmail) {
+        if (byEmail.role === 'admin' && !byEmail.microsoftId) {
+          return res.redirect('/login.html?error=' + encodeURIComponent('Dieses Konto muss vor der Microsoft-Anmeldung durch einen Administrator verknüpft werden.'));
+        }
+        user = byEmail;
+      }
     }
 
     if (!user) {
@@ -370,6 +466,9 @@ app.get('/api/auth/microsoft/callback', async (req, res) => {
       }
     }
 
+    // Session-ID regenerieren gegen Session-Fixation (der OAuth-Flow hat bereits
+    // eine pre-auth Session mit oauthState gesetzt)
+    await regenerateSession(req);
     req.session.user = { id: user.id, username: user.username, displayName: user.displayName || displayName, role: user.role };
     res.redirect('/');
   } catch (err) {
@@ -421,7 +520,8 @@ function readConfig() {
 
 function writeConfig(config) {
   fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
+  // mode 0600: config.json enthaelt das 3CX clientSecret und darf nicht weltlesbar sein.
+  writeFileAtomic(CONFIG_PATH, JSON.stringify(config, null, 2), { mode: 0o600 });
 }
 
 // --- HTTP helper to call 3CX API ---
@@ -515,7 +615,7 @@ app.get('/api/config', requireAuth, (_req, res) => {
 app.post('/api/config', requireAdmin, (req, res) => {
   const { fqdn, clientId, clientSecret } = req.body;
 
-  if (!fqdn || !clientId || !clientSecret) {
+  if (!isNonEmptyString(fqdn) || !isNonEmptyString(clientId) || !isNonEmptyString(clientSecret)) {
     return res.status(400).json({ error: 'Alle Felder sind erforderlich.' });
   }
 
@@ -588,8 +688,15 @@ app.get('/api/users', requireAdmin, (_req, res) => {
 app.post('/api/users', requireAdmin, async (req, res) => {
   const { username, password, displayName, email, role } = req.body;
 
-  if (!username) {
+  if (!isNonEmptyString(username)) {
     return res.status(400).json({ error: 'Benutzername ist erforderlich.' });
+  }
+  // Optionale Felder muessen, falls vorhanden, Strings sein.
+  if ((displayName !== undefined && typeof displayName !== 'string') ||
+      (email !== undefined && typeof email !== 'string') ||
+      (password !== undefined && typeof password !== 'string') ||
+      (role !== undefined && typeof role !== 'string')) {
+    return res.status(400).json({ error: 'Ungültige Eingabedaten.' });
   }
 
   const users = readUsers();
@@ -600,7 +707,7 @@ app.post('/api/users', requireAdmin, async (req, res) => {
   const user = {
     id: uuidv4(),
     username: username.trim(),
-    displayName: (displayName || username).trim(),
+    displayName: (isNonEmptyString(displayName) ? displayName : username).trim(),
     email: (email || '').trim(),
     role: role === 'admin' ? 'admin' : 'user',
     createdAt: new Date().toISOString(),
@@ -632,6 +739,14 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
   if (idx === -1) return res.status(404).json({ error: 'Benutzer nicht gefunden.' });
 
   const { displayName, email, role, password } = req.body;
+
+  // Typpruefung an der Aussengrenze: verhindert TypeError-Crash bei z.B. Zahl/Objekt.
+  if ((displayName !== undefined && typeof displayName !== 'string') ||
+      (email !== undefined && typeof email !== 'string') ||
+      (role !== undefined && typeof role !== 'string') ||
+      (password !== undefined && typeof password !== 'string')) {
+    return res.status(400).json({ error: 'Ungültige Eingabedaten.' });
+  }
 
   if (displayName !== undefined) users[idx].displayName = displayName.trim();
   if (email !== undefined) users[idx].email = email.trim();
@@ -684,8 +799,11 @@ app.delete('/api/users/:id', requireAdmin, (req, res) => {
 
 app.post('/api/auth/change-password', requireAuth, async (req, res) => {
   const { currentPassword, newPassword } = req.body;
-  if (!newPassword || newPassword.length < 8) {
+  if (!isNonEmptyString(newPassword) || newPassword.length < 8) {
     return res.status(400).json({ error: 'Neues Passwort muss mindestens 8 Zeichen lang sein.' });
+  }
+  if (currentPassword !== undefined && typeof currentPassword !== 'string') {
+    return res.status(400).json({ error: 'Ungültige Eingabedaten.' });
   }
 
   const users = readUsers();
@@ -741,12 +859,22 @@ app.get('/api/blacklist', requireAuth, ensureConfigured, async (req, res) => {
 
 app.post('/api/blacklist', requireAuth, ensureConfigured, async (req, res) => {
   try {
+    // Payload serverseitig auf die tatsaechlichen 3CX-Felder whitelisten
+    // (BlackListNumbers kennt nur Id/Number/Description). Verhindert das
+    // ungefilterte Durchreichen von req.body an die 3CX-xAPI.
+    const number = typeof req.body.Number === 'string' ? req.body.Number.trim() : '';
+    const description = typeof req.body.Description === 'string' ? req.body.Description.trim() : '';
+    if (!number) {
+      return res.status(400).json({ error: 'Nummer ist erforderlich.' });
+    }
+    const payload = { Number: number, Description: description };
+
     const token = await getAccessToken(req.appConfig);
     const url = `${req.appConfig.fqdn}/xapi/v1/BlackListNumbers`;
     const result = await apiRequest('POST', url, {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
-    }, JSON.stringify(req.body));
+    }, JSON.stringify(payload));
 
     if (result.status === 401) {
       cachedToken = null;
@@ -786,6 +914,12 @@ app.delete('/api/blacklist/:id', requireAuth, ensureConfigured, async (req, res)
   }
 });
 
+// --- Unbekannte API-Pfade: JSON-404 statt SPA-HTML ---
+
+app.all('/api/*', (_req, res) => {
+  res.status(404).json({ error: 'Nicht gefunden.' });
+});
+
 // --- SPA fallback ---
 
 app.get('*', (req, res) => {
@@ -793,6 +927,15 @@ app.get('*', (req, res) => {
     return res.redirect('/login.html');
   }
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// --- Globaler Error-Handler (faengt u.a. Rejections aus async-Handlern) ---
+
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  console.error('Unbehandelter Fehler:', err);
+  if (res.headersSent) return next(err);
+  res.status(500).json({ error: 'Interner Serverfehler.' });
 });
 
 app.listen(PORT, () => {
